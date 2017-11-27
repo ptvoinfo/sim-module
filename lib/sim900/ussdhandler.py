@@ -31,6 +31,7 @@ Copyright (C) 2014-2015 Bohdan Danishevsky ( dbn@aminis.com.ua ) All Rights Rese
 
 from lib.sim900.gsm import SimGsm
 from lib.sim900.simshared import *
+from smspdu.pdu import PDUData
 
 class SimUssdHandler(SimGsm):
     def __init__(self, port, logger):
@@ -38,7 +39,7 @@ class SimUssdHandler(SimGsm):
         self.lastUssdResult = None
 
     @staticmethod
-    def __parseResult(value):
+    def __parseResult(self, value):
         #parsing strings like '+CUSD: 0,"data string"'
 
         #searching and removing '+CUSD' prefix
@@ -57,6 +58,17 @@ class SimUssdHandler(SimGsm):
         #searching and removing numeric parameter
         idx = data.find(",")
         if idx == -1:
+            if data != "":
+                # contains error code
+                data = int(data)
+                if data == 2:
+                    self.setWarn("USSD terminated by network")
+                elif data == 3:
+                    self.setWarn("Other local client has responded")
+                elif data == 4:
+                    self.setWarn("Operation not supported")
+                elif data == 5:
+                    self.setWarn("Network time out")
             return None
 
         #also, we can use this code. But I dont know how
@@ -65,9 +77,26 @@ class SimUssdHandler(SimGsm):
 
         data = str(data).strip()
 
-        data = data.rstrip(',')
-        data = data.strip('"')
+        idx = data.rfind(",")
+        dcs = None
+        if idx > -1:
+            dcs = data[(idx+1):] 
+            data = data[:idx]
 
+        data = data.strip('"')            
+        if(dcs is not None) and (dcs != ''):
+            # bit 7..4 Coding Group Bits = 01xx
+            # bit 5 = 0 --> uncompressed,
+            # bit 4 = 0 --> no class meaning
+            # bit 3 & 2 = 1 & 0 --> UCS2 (16bit)
+            dcs = int(dcs)
+            if (dcs & 40) != 0:
+                dcs = (dcs >> 2) & 3
+                if dcs == 2: # UCS2 encoding
+                    tpdu = PDUData(data)
+                    tpdu_len = len(tpdu)
+                    bytes = tpdu.octets(tpdu_len / 2 + tpdu_len % 2)
+                    data = bytearray(bytes, 'latin').decode('utf_16_be') 
         return data
 
     def runUssdCode(self, ussdCode):
@@ -85,7 +114,7 @@ class SimUssdHandler(SimGsm):
 
         #checking that we have result here
         if len(result) > 0:
-            self.lastUssdResult = self.__parseResult(result)
+            self.lastUssdResult = self.__parseResult(self, result)
 
             if self.lastUssdResult is None:
                 self.setWarn("error parsing USSD command result")
@@ -107,7 +136,11 @@ class SimUssdHandler(SimGsm):
         if data == bytes([0xff]):
             data = None
 
-        endLine = self.readLn(500)
+        if (data is not None):
+            data = data.decode('latin')
+
+        endLine = self.readNullTerminatedLn(500)
+        #self.readNullTerminatedLn(500, "latin") # receive and discard all remaining bytes
 
         if (data is not None) or (endLine is not None):
             endLine = noneToEmptyString(data) + noneToEmptyString(endLine)
@@ -115,9 +148,8 @@ class SimUssdHandler(SimGsm):
 
             if len(endLine) > 0:
                 dataLine += endLine
-
         #parsing CUSD result
-        self.lastUssdResult = self.__parseResult(dataLine)
+        self.lastUssdResult = self.__parseResult(self, dataLine)
 
         if self.lastUssdResult is None:
             return False

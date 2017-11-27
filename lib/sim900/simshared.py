@@ -52,7 +52,10 @@ class AminisLastErrorHolderWithLogging(AminisLastErrorHolder):
 
     def setError(self, value):
         AminisLastErrorHolder.setError(self, value)
-        self.logger.error(value)
+        if isinstance(value, Exception):
+            self.logger.error(value, exc_info=True)
+        else:
+            self.logger.error(value)
 
     def setWarn(self, value):
         AminisLastErrorHolder.setError(self, value)

@@ -211,10 +211,10 @@ class SimGsmSerialPortHandler(AminisLastErrorHolderWithLogging):
             return None
 
         except Exception as e:
-            self.setError(e)
+            self.setError("readFixedSzieByteArray error: {0}".format(e))
             return None
         except:
-            self.setError("reading error...")
+            self.setError("readFixedSzieByteArray error...")
             return None
 
 
@@ -238,6 +238,8 @@ class SimGsmSerialPortHandler(AminisLastErrorHolderWithLogging):
 
                     #checking that we have NULL symbol in
                     idx = b.find(0x00)
+                    if idx == -1:
+                        idx = b.find(0x0A)
                     if idx != -1:
                         buffer.extend(b[:idx])
                         return buffer.decode(codepage)
@@ -253,10 +255,10 @@ class SimGsmSerialPortHandler(AminisLastErrorHolderWithLogging):
             return None
 
         except Exception as e:
-            self.setError(e)
+            self.setError("readNullTerminatedLn error {0}".format(e))
             return None
         except:
-            self.setError("reading error...")
+            self.setError("readNullTerminatedLn error...")
             return None
 
     def readLn(self, maxWaitTime = 5000, codepage = "ascii"):
@@ -288,23 +290,23 @@ class SimGsmSerialPortHandler(AminisLastErrorHolderWithLogging):
                     if codepage is not None:
                         #checking for line end symbols
                         line = buffer.decode(codepage)
-                        if '\n' in line:
+                        if "\n" in line:
                             return line.strip()
-                    elif ord('\n') in buffer:
+                    elif ord("\n") in buffer:
                         return buffer
 
                 #if we have nothing in input - let's go sleep for some time
                 if receivedBytesQty == 0:
-                    time.sleep(0)
+                    time.sleep(0.1)
 
             #comming there by timeout
             return None
 
         except Exception as e:
-            self.setError(e)
+            self.setError("readLn error {0}".format(e))
             return None
         except:
-            self.setError("reading error...")
+            self.setError("readLn error...")
             return None
 
     def readDataLine(self, maxWaitTime = 500, codepage = "ascii"):
@@ -479,6 +481,7 @@ class SimGsmSerialPortHandler(AminisLastErrorHolderWithLogging):
                     b = self.__serial.read(100)
 
                     if (b is not None) and (len(b) >= 1):
+                        self.logger.debug("Received")
                         buffer += bytearray(b)
                         self.logger.debug("{0}: buffer = {1}".format(inspect.stack()[0][3], buffer))
 
@@ -512,10 +515,10 @@ class SimGsmSerialPortHandler(AminisLastErrorHolderWithLogging):
 
             return None
         except Exception as e:
-            self.setError(e)
+            self.setError("commandAndStdResult error {0}".format(e))
             return None
         except:
-            self.setError("reading error...")
+            self.setError("commandAndStdResult error...")
             return None
 
     def execSimpleCommand(self, commandText, result, timeout = 500):
@@ -626,7 +629,6 @@ class SimGsm(SimGsmSerialPortHandler):
             return False
 
         v = " ".join([v for v in values[1:]])
-
         if v == "READY":
             self.pinState = SimGsmPinRequestState.NOPINNEEDED
         elif v == "SIM PIN":
