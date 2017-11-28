@@ -2,6 +2,9 @@
 __pycache__/
 *.py[cod]
 
+# Windows bat file
+*.bat
+
 # C extensions
 *.so
 

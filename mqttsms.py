@@ -421,7 +421,7 @@ if __name__ == "__main__":
     gen_cfg = ConfigSectionMap(Config, 'General')
     loglevel = int(gen_cfg.get('loglevel', 0)) * 10
     consoleloglevel = int(gen_cfg.get('consoleloglevel', 0)) * 10
-    
+
     # initializing logger
     (formatter, logger, consoleLogger,) = initializeLogs(loglevel, consoleloglevel) 
 
@@ -459,34 +459,55 @@ if __name__ == "__main__":
         GSM_WHITE_LIST = whiteList.split(';')
         for number in GSM_WHITE_LIST:
             number.strip()
-            logger.debug('Number: "' + number + "'")
+            logger.debug('White list number: "' + number + "'")
     GSM_SMS_PASS = gsm_cfg.get('password', '')
 
-    # adding & initializing port object
-    COM_PORT = initializeUartPort(portName=comName, baudrate=comBaud)
-
-    #making base operations
-    d = baseOperations(COM_PORT, logger)
-    if d is not None:
-        (GSM, imei) = d
-
-        MQTT_CLIENT = prepare_mqtt(MQTT_SERVER, MQTT_PORT)
+    bFirstInit = True
+    bInitWaitFor = 60 # wait for 30 seconds between initialization attempts
+    bInitWaitCnt = 0
+    excMsg = "Exception: Main loop"
+    while not exitSignal:
         try:
-            thread.start_new_thread(MQTT_CLIENT.loop_forever, ())
+            if not bFirstInit:
+                if bInitWaitCnt == 0:
+                    logger.info("Waiting for a next attempt to initialize GSM modem")
+                bInitWaitCnt = bInitWaitCnt + 1
+                time.sleep(0.5)
+                if bInitWaitCnt < bInitWaitFor:
+                    continue
+            bInitWaitCnt = 0
+            bFirstInit = False
+
+            # adding & initializing port object
+            COM_PORT = initializeUartPort(portName=comName, baudrate=comBaud)
+
+            #making base operations
+            d = baseOperations(COM_PORT, logger)
+            if d is not None:
+                (GSM, imei) = d
+
+                MQTT_CLIENT = prepare_mqtt(MQTT_SERVER, MQTT_PORT)
+                try:
+                    thread.start_new_thread(MQTT_CLIENT.loop_forever, ())
+                except:
+                    logger.error("Exception: Unable to start thread")
+
+                signal.signal(signal.SIGINT, signal_handler)
+                logger.info("Start listenning")
+
+                bFirstTime = True
+                while not exitSignal:
+                    if com_port_check_incomig(GSM) == 1: # nothing received, we can try to send a SMS
+                        if bFirstTime:
+                            bFirstTime = False
+                            gsm_add_send_queue("AT+CMGL=0,0") # get UNREAD message and mark then "READ"                    
+                        com_port_check_sms_queue(GSM)
+                    time.sleep(0.5)
+                GSM.closePort()
+        except Exception as e:
+            logger.exception(excMsg)
         except:
-            logger.error("Exception: Unable to start thread")
+            logger.error(excMsg)
 
-        signal.signal(signal.SIGINT, signal_handler)
-        logger.info("Start listenning")
-
-        bFirstTime = True
-        while not exitSignal:
-            if com_port_check_incomig(GSM) == 1: # nothing received, we can try to send a SMS
-                if bFirstTime:
-                    bFirstTime = False
-                    gsm_add_send_queue("AT+CMGL=0,0") # get UNREAD message and mark then "READ"                    
-                com_port_check_sms_queue(GSM)
-            time.sleep(0.5)
-        GSM.closePort()
 
     print("DONE")
